@@ -1,2 +1,2 @@
 # mailman-matt-go
-Check the postal service mail delivery at your postal code (in Norway). Rewritten in Go from https://github.com/kluzzebass/mailman-matt. 
+This module looks up the mail delivery dates at a given Norwegian postal code. Rewritten in Go from https://github.com/kluzzebass/mailman-matt. 
