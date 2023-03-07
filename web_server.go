@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	ics "github.com/arran4/golang-ical"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,12 +19,12 @@ type WebServer struct {
 	cfg     Config
 	fetcher *ScheduleFetcher
 	builder *CalendarBuilder
-	cache   *ttlcache.Cache[int, string]
+	cache   *ttlcache.Cache[int, *ics.Calendar]
 	echo    *echo.Echo
 	logger  *slog.Logger
 }
 
-func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder, cache *ttlcache.Cache[int, string]) *WebServer {
+func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder) *WebServer {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -34,7 +35,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 		cfg:     cfg,
 		fetcher: fetcher,
 		builder: builder,
-		cache:   cache,
+		cache:   NewCache(),
 		echo:    e,
 		logger:  logger,
 	}
@@ -97,9 +98,9 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 		// convert postCode to int
 		postCodeInt, _ := strconv.Atoi(postCode)
 
-		var cal string
+		var cal *ics.Calendar
 
-		if item := cache.Get(postCodeInt); item != nil {
+		if item := s.cache.Get(postCodeInt); item != nil {
 			logger.Info("hit",
 				"subsystem", "cache",
 				"item", item.Key(),
@@ -112,7 +113,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 			}
 
 			// build ics calendar from schedule and serialize it
-			cal = builder.buildCalendar(sch).Serialize()
+			cal = builder.buildCalendar(sch)
 
 			// calculate the cache ttl duration until midnight
 			now := time.Now()
@@ -120,7 +121,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 			tomorrowMidnight := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, now.Location())
 			ttl := tomorrowMidnight.Sub(now)
 
-			cache.Set(postCodeInt, cal, ttl)
+			s.cache.Set(postCodeInt, cal, ttl)
 		}
 
 		c.Response().Header().Set("Content-Type", "text/calendar; charset=utf-8")
@@ -129,7 +130,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 		c.Response().Header().Set("Connection", "keep-alive")
 		c.Response().Header().Set("Keep-Alive", "timeout=5, max=1000")
 
-		return c.String(http.StatusOK, cal)
+		return c.String(http.StatusOK, cal.Serialize())
 	})
 
 	return s

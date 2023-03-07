@@ -3,23 +3,24 @@ package main
 import (
 	"context"
 
+	ics "github.com/arran4/golang-ical"
 	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/exp/slog"
 )
 
-func NewCache() *ttlcache.Cache[int, string] {
+func NewCache() *ttlcache.Cache[int, *ics.Calendar] {
 
 	logger := slog.Default().With("subsystem", "cache")
-	cache := ttlcache.New[int, string]()
+	cache := ttlcache.New[int, *ics.Calendar]()
 
-	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[int, string]) {
+	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[int, *ics.Calendar]) {
 		logger.Debug("insertion",
 			"item", item.Key(),
 			"expires_at", item.ExpiresAt(),
 		)
 	})
 
-	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[int, string]) {
+	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[int, *ics.Calendar]) {
 		reasonStr := "unknown"
 
 		switch reason {

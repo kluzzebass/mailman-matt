@@ -36,8 +36,7 @@ func main() {
 
 	fetcher := NewScheduleFetcher(cfg)
 	builder := NewCalendarBuilder(cfg)
-	cache := NewCache()
-	server := NewWebServer(cfg, fetcher, builder, cache)
+	server := NewWebServer(cfg, fetcher, builder)
 
 	// Start server
 	server.Start()
