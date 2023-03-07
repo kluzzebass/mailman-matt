@@ -2,22 +2,57 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	// AutoLoad .env file
+
 	_ "github.com/joho/godotenv/autoload"
+	"golang.org/x/exp/slog"
 )
 
 func main() {
 	ctx := context.Background()
 	cfg := NewConfig(ctx)
-	fetcher := NewFetcher(cfg)
 
-	// fetcher.fetchSchedule(ctx, 9845)
-	err := fetcher.GetSchedule(ctx, 9845)
-	if err != nil {
-		panic(err)
+	ho := slog.HandlerOptions{
+		Level:     cfg.LogLevel,
+		AddSource: cfg.LogSource,
 	}
 
-	log.Println("Done!")
+	logger := slog.New(ho.NewJSONHandler(os.Stdout))
+	logger = logger.With("subsystem", "main")
+
+	if cfg.DumpConfig {
+		logger.Info("dumping configuration", "config", cfg)
+	}
+
+	// look at me... i'm the logger now.
+	slog.SetDefault(logger)
+
+	logger.Info("starting service")
+
+	fetcher := NewScheduleFetcher(cfg)
+	builder := NewCalendarBuilder(cfg)
+	cache := NewCache()
+	server := NewWebServer(cfg, fetcher, builder, cache)
+
+	// Start server
+	server.Start()
+
+	// Wait for interrupt signal to gracefully shutdown the server with
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Stop(ctx); err != nil {
+		logger.Warn("error shutting down web server", "error", err)
+	}
+
+	logger.Info("ok, bye!")
 }

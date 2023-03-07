@@ -7,13 +7,31 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
+	"time"
 
 	"golang.org/x/net/html"
 )
 
-type Fetcher struct {
+type ScheduleFetcher struct {
 	cfg    Config
 	client http.Client
+}
+
+var months = map[string]int{
+	"januar":    1,
+	"februar":   2,
+	"mars":      3,
+	"april":     4,
+	"mai":       5,
+	"juni":      6,
+	"juli":      7,
+	"august":    8,
+	"september": 9,
+	"oktober":   10,
+	"november":  11,
+	"desember":  12,
 }
 
 type rawSchedule struct {
@@ -21,12 +39,10 @@ type rawSchedule struct {
 	IsStreetAddressReq bool     `json:"isStreetAddressReq"`
 }
 
-type schedule struct {
-	NextDeliveryDays []string
-}
+type schedule []time.Time
 
-func NewFetcher(cfg Config) *Fetcher {
-	f := &Fetcher{
+func NewScheduleFetcher(cfg Config) *ScheduleFetcher {
+	f := &ScheduleFetcher{
 		cfg:    cfg,
 		client: http.Client{},
 	}
@@ -34,27 +50,26 @@ func NewFetcher(cfg Config) *Fetcher {
 	return f
 }
 
-func (f *Fetcher) GetSchedule(ctx context.Context, postCode int) error {
+func (f *ScheduleFetcher) GetSchedule(ctx context.Context, postCode int) (schedule, error) {
 	apiUrl, err := f.fetchAPIURL(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rawSchedule, err := f.fetchSchedule(ctx, *apiUrl, postCode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	schedule, err := f.parseRawSchedule(ctx, rawSchedule)
+	schedule, err := parseRawSchedule(ctx, rawSchedule)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	fmt.Println(schedule)
-	return nil
+	return schedule, nil
 }
 
-func (f Fetcher) fetchAPIURL(ctx context.Context) (*url.URL, error) {
+func (f ScheduleFetcher) fetchAPIURL(ctx context.Context) (*url.URL, error) {
 	res, err := http.Get(f.cfg.PageUrl.String())
 
 	if err != nil {
@@ -109,7 +124,7 @@ func (f Fetcher) fetchAPIURL(ctx context.Context) (*url.URL, error) {
 	return nil, io.EOF
 }
 
-func (f *Fetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, postCode int) (*rawSchedule, error) {
+func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, postCode int) (*rawSchedule, error) {
 
 	// create the request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl.String(), nil)
@@ -149,11 +164,59 @@ func (f *Fetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, postCode in
 		return nil, err
 	}
 
-	fmt.Println("Raw Schecule:", raw)
-
 	return &raw, nil
 }
 
-func (f *Fetcher) parseRawSchedule(ctx context.Context, raw *rawSchedule) (*schedule, error) {
-	return nil, nil
+func parseRawSchedule(ctx context.Context, raw *rawSchedule) (schedule, error) {
+	sch := schedule{}
+
+	// parse each date
+	for _, date := range raw.NextDeliveryDays {
+		t, err := parseDate(date)
+		if err != nil {
+			return nil, err
+		}
+		sch = append(sch, *t)
+	}
+
+	return sch, nil
+}
+
+func parseDate(date string) (*time.Time, error) {
+
+	// parse string using regex and return array of matches
+	re := regexp.MustCompile(`(\d+)\.\s+(\w+)$`)
+	matches := re.FindStringSubmatch(date)
+	if matches == nil || len(matches) != 3 {
+		return nil, fmt.Errorf("could not parse date: %s", date)
+	}
+
+	// get the month number from the month name
+	month, ok := months[matches[2]]
+	if !ok {
+		return nil, fmt.Errorf("could not parse month: %s", matches[2])
+	}
+
+	// parse the day
+	day, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil, err
+	}
+
+	// parsing dates relative to the current time
+	now := time.Now()
+
+	// truncate localized time to midnight so that we can compare dates
+	now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// create a time object with the parsed date based on the current time, since
+	// the API only returns the day and month
+	parsed := time.Date(now.Year(), time.Month(month), day, 0, 0, 0, 0, now.Location())
+
+	// if the parsed time is before now, add a year
+	if parsed.Before(now) {
+		parsed = parsed.AddDate(1, 0, 0)
+	}
+
+	return &parsed, nil
 }
