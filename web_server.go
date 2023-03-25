@@ -109,7 +109,8 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 		} else {
 			sch, err := fetcher.GetSchedule(ctx, postCodeInt)
 			if err != nil {
-				return c.String(http.StatusInternalServerError, "error fetching schedule")
+				s.logger.Error("error fetching schedule", err)
+				return c.String(http.StatusGatewayTimeout, "operation timed out while fetching schedule")
 			}
 
 			// build ics calendar from schedule and serialize it
