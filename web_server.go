@@ -122,6 +122,9 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 			tomorrowMidnight := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, now.Location())
 			ttl := tomorrowMidnight.Sub(now)
 
+			// print duration until midnight
+			logger.Debug("ttl", "subsystem", "cache", "postCode", postCode, "duration", ttl.String())
+
 			s.cache.Set(postCodeInt, cal, ttl)
 		}
 
