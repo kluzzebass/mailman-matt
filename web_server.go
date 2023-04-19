@@ -116,16 +116,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 			// build ics calendar from schedule and serialize it
 			cal = builder.buildCalendar(sch)
 
-			// calculate the cache ttl duration until midnight
-			now := time.Now()
-			tomorrow := now.AddDate(0, 0, 1)
-			tomorrowMidnight := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, now.Location())
-			ttl := tomorrowMidnight.Sub(now)
-
-			// print duration until midnight
-			logger.Debug("ttl", "subsystem", "cache", "postCode", postCode, "duration", ttl.String())
-
-			s.cache.Set(postCodeInt, cal, ttl)
+			s.cache.Set(postCodeInt, cal, *cfg.CacheTTL)
 		}
 
 		c.Response().Header().Set("Content-Type", "text/calendar; charset=utf-8")
