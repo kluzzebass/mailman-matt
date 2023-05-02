@@ -8,10 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"time"
 
-	"golang.org/x/net/html"
+	"golang.org/x/exp/slog"
 )
 
 type ScheduleFetcher struct {
@@ -35,8 +34,7 @@ var months = map[string]int{
 }
 
 type rawSchedule struct {
-	NextDeliveryDays   []string `json:"nextDeliveryDays"`
-	IsStreetAddressReq bool     `json:"isStreetAddressReq"`
+	DeliveryDates []string `json:"delivery_dates"`
 }
 
 type schedule []time.Time
@@ -51,80 +49,80 @@ func NewScheduleFetcher(cfg Config) *ScheduleFetcher {
 }
 
 func (f *ScheduleFetcher) GetSchedule(ctx context.Context, postCode int) (schedule, error) {
-	apiUrl, err := f.fetchAPIURL(ctx)
+	apiUrl, apiKey, err := f.fetchAPIURL(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	rawSchedule, err := f.fetchSchedule(ctx, *apiUrl, postCode)
+	rawSchedule, err := f.fetchSchedule(ctx, *apiUrl, *apiKey, postCode)
 	if err != nil {
 		return nil, err
 	}
 
-	schedule, err := parseRawSchedule(ctx, rawSchedule)
-	if err != nil {
-		return nil, err
+	schedule := schedule{}
+
+	for _, date := range rawSchedule.DeliveryDates {
+		t, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			return nil, err
+		}
+		schedule = append(schedule, t)
 	}
+
+	slog.Debug("parsed schedule", "schedule", schedule)
 
 	return schedule, nil
 }
 
-func (f ScheduleFetcher) fetchAPIURL(ctx context.Context) (*url.URL, error) {
+func (f ScheduleFetcher) fetchAPIURL(ctx context.Context) (*url.URL, *string, error) {
 	res, err := http.Get(f.cfg.PageUrl.String())
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code error: %d %s", res.StatusCode, res.Status)
+		return nil, nil, fmt.Errorf("status code error: %d %s", res.StatusCode, res.Status)
 	}
 
-	z := html.NewTokenizer(res.Body)
-
-	for {
-		tt := z.Next()
-		if tt == html.ErrorToken {
-			break
-		}
-		t := z.Token()
-
-		if t.Type != html.StartTagToken || t.Data != f.cfg.ApiElement {
-			continue
-		}
-
-		// locate the correct element
-		foundElement := false
-		for _, a := range t.Attr {
-			// fmt.Println(a.Key, a.Val)
-			if a.Key == "id" && a.Val == f.cfg.ApiElementId {
-				foundElement = true
-				break
-			}
-		}
-
-		if !foundElement {
-			continue
-		}
-
-		// locate the correct attribute
-		for _, a := range t.Attr {
-			if a.Key == f.cfg.ApiPathAttr {
-				url, err := url.Parse(a.Val)
-				if err != nil {
-					return nil, err
-				}
-				// handle both relative and absolute URLs
-				url = f.cfg.PageUrl.ResolveReference(url)
-				return url, nil
-			}
-		}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, io.EOF
+
+	// there's no point doing this properly using a token parser, as the page changes all the time
+
+	// regex match for this string:
+	// "serviceUrl":"https://www.posten.no/levering-av-post/_/service/no.posten.website/delivery-days"
+	re1 := regexp.MustCompile(`"serviceUrl":"([^"]+)"`)
+	matches := re1.FindStringSubmatch(string(body))
+	if len(matches) != 2 {
+		return nil, nil, fmt.Errorf("could not find serviceUrl in page")
+	}
+
+	apiUrl, err := url.Parse(matches[1])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	slog.Debug("found apiUrl", "api_url", apiUrl.String())
+
+	// regex match for this string:
+	// "apiKey":"e3640b22MTY4MzAzNTY5Mg"
+	re2 := regexp.MustCompile(`"apiKey":"([^"]+)"`)
+	matches = re2.FindStringSubmatch(string(body))
+	if len(matches) != 2 {
+		return nil, nil, fmt.Errorf("could not find apiKey in page")
+	}
+
+	apiKey := matches[1]
+	slog.Debug("found apiKey", "api_key", apiKey)
+
+	return apiUrl, &apiKey, nil
 }
 
-func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, postCode int) (*rawSchedule, error) {
+func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, apiKey string, postCode int) (*rawSchedule, error) {
 
 	// create the request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl.String(), nil)
@@ -135,10 +133,11 @@ func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, pos
 	// add headers
 	req.Header.Add("content-type", "application/json")
 	req.Header.Add("x-requested-with", "XMLHttpRequest")
+	req.Header.Add("kp-api-token", apiKey)
 
 	// add query parameters
 	v := make(url.Values)
-	v.Add(f.cfg.ApiPostCodeArg, fmt.Sprint(postCode))
+	v.Add("postalCode", fmt.Sprint(postCode))
 	req.URL.RawQuery = v.Encode()
 
 	// send the request
@@ -158,65 +157,15 @@ func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, pos
 		return nil, err
 	}
 
-	raw := rawSchedule{}
+	fmt.Println(string(body))
+
+	var raw rawSchedule
 	err = json.Unmarshal(body, &raw)
 	if err != nil {
 		return nil, err
 	}
 
+	slog.Debug("raw schedule", "raw", raw)
+
 	return &raw, nil
-}
-
-func parseRawSchedule(ctx context.Context, raw *rawSchedule) (schedule, error) {
-	sch := schedule{}
-
-	// parse each date
-	for _, date := range raw.NextDeliveryDays {
-		t, err := parseDate(date)
-		if err != nil {
-			return nil, err
-		}
-		sch = append(sch, *t)
-	}
-
-	return sch, nil
-}
-
-func parseDate(date string) (*time.Time, error) {
-
-	// parse string using regex and return array of matches
-	re := regexp.MustCompile(`(\d+)\.\s+(\w+)$`)
-	matches := re.FindStringSubmatch(date)
-	if matches == nil || len(matches) != 3 {
-		return nil, fmt.Errorf("could not parse date: %s", date)
-	}
-
-	// get the month number from the month name
-	month, ok := months[matches[2]]
-	if !ok {
-		return nil, fmt.Errorf("could not parse month: %s", matches[2])
-	}
-
-	// parse the day
-	day, err := strconv.Atoi(matches[1])
-	if err != nil {
-		return nil, err
-	}
-
-	// parsing dates relative to the current time
-	now := time.Now()
-
-	// truncate localized time to midnight so that we can compare dates
-	now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-
-	// create a time object with the parsed date based on the current time, since
-	// the API only returns the day and month
-	parsed := time.Date(now.Year(), time.Month(month), day, 0, 0, 0, 0, now.Location())
-
-	// if the parsed time is before now, add a year
-	if parsed.Before(now) {
-		parsed = parsed.AddDate(1, 0, 0)
-	}
-
-	return &parsed, nil
 }
