@@ -23,7 +23,7 @@ type (
 		Summary    string         `env:"MATT_SUMMARY,default=POST"`
 		Timezone   string         `env:"MATT_TIMEZONE,default=Europe/Oslo"`
 		Name       string         `env:"MATT_NAME,default=Matt"`
-		CacheTTL   *time.Duration `env:"MATT_CACHE_TTL,default=1h"`
+		CacheTTL   time.Duration  `env:"MATT_CACHE_TTL,default=1h"`
 	}
 )
 

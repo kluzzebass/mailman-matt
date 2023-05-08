@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"time"
 
 	ics "github.com/arran4/golang-ical"
 	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/exp/slog"
 )
 
-func NewCache() *ttlcache.Cache[int, *ics.Calendar] {
+func NewCache(ttl time.Duration) *ttlcache.Cache[int, *ics.Calendar] {
 
 	logger := slog.Default().With("subsystem", "cache")
-	cache := ttlcache.New[int, *ics.Calendar]()
+	cache := ttlcache.New[int, *ics.Calendar](
+		ttlcache.WithTTL[int, *ics.Calendar](ttl),
+		ttlcache.WithDisableTouchOnHit[int, *ics.Calendar](),
+	)
 
 	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[int, *ics.Calendar]) {
 		logger.Debug("insertion",

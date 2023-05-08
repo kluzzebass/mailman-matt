@@ -35,7 +35,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 		cfg:     cfg,
 		fetcher: fetcher,
 		builder: builder,
-		cache:   NewCache(),
+		cache:   NewCache(cfg.CacheTTL),
 		echo:    e,
 		logger:  logger,
 	}
@@ -116,7 +116,7 @@ func NewWebServer(cfg Config, fetcher *ScheduleFetcher, builder *CalendarBuilder
 			// build ics calendar from schedule and serialize it
 			cal = builder.buildCalendar(sch)
 
-			s.cache.Set(postCodeInt, cal, *cfg.CacheTTL)
+			s.cache.Set(postCodeInt, cal, ttlcache.DefaultTTL)
 		}
 
 		c.Response().Header().Set("Content-Type", "text/calendar; charset=utf-8")
