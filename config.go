@@ -17,7 +17,7 @@ type (
 		LogSource  bool           `env:"MATT_LOG_SOURCE,default=false"`
 		DumpConfig bool           `env:"MATT_DUMP_CONFIG,default=false"`
 		Port       int            `env:"MATT_PORT,default=3000"`
-		PageUrl    url.URL        `env:"MATT_PAGE_URL,default=https://www.posten.no/levering-av-post"`
+		ApiUrl     url.URL        `env:"MATT_API_URL,default=https://www.posten.no/levering-av-post/_/service/no.posten.website/delivery-days"`
 		ApiTimeout time.Duration  `env:"MATT_API_TIMEOUT,default=5s"`
 		ProductID  string         `env:"MATT_PRODUCT_ID,default=-//github.com//kluzzebass//mailman-matt-go//EN"`
 		Summary    string         `env:"MATT_SUMMARY,default=POST"`

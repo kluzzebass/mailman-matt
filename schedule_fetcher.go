@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"time"
 
 	"golang.org/x/exp/slog"
@@ -34,12 +33,7 @@ func NewScheduleFetcher(cfg Config) *ScheduleFetcher {
 }
 
 func (f *ScheduleFetcher) GetSchedule(ctx context.Context, postCode int) (schedule, error) {
-	apiUrl, apiKey, err := f.fetchAPIURL(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	rawSchedule, err := f.fetchSchedule(ctx, *apiUrl, *apiKey, postCode)
+	rawSchedule, err := f.fetchSchedule(ctx, postCode)
 	if err != nil {
 		return nil, err
 	}
@@ -59,58 +53,9 @@ func (f *ScheduleFetcher) GetSchedule(ctx context.Context, postCode int) (schedu
 	return schedule, nil
 }
 
-func (f ScheduleFetcher) fetchAPIURL(ctx context.Context) (*url.URL, *string, error) {
-	res, err := http.Get(f.cfg.PageUrl.String())
-
-	if err != nil {
-		return nil, nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("status code error: %d %s", res.StatusCode, res.Status)
-	}
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// there's no point doing this properly using a token parser, as the page changes all the time
-
-	// regex match for this string:
-	// "serviceUrl":"https://www.posten.no/levering-av-post/_/service/no.posten.website/delivery-days"
-	re1 := regexp.MustCompile(`"serviceUrl":"([^"]+)"`)
-	matches := re1.FindStringSubmatch(string(body))
-	if len(matches) != 2 {
-		return nil, nil, fmt.Errorf("could not find serviceUrl in page")
-	}
-
-	apiUrl, err := url.Parse(matches[1])
-	if err != nil {
-		return nil, nil, err
-	}
-
-	slog.Debug("found apiUrl", "api_url", apiUrl.String())
-
-	// regex match for this string:
-	// "apiKey":"e3640b22MTY4MzAzNTY5Mg"
-	re2 := regexp.MustCompile(`"apiKey":"([^"]+)"`)
-	matches = re2.FindStringSubmatch(string(body))
-	if len(matches) != 2 {
-		return nil, nil, fmt.Errorf("could not find apiKey in page")
-	}
-
-	apiKey := matches[1]
-	slog.Debug("found apiKey", "api_key", apiKey)
-
-	return apiUrl, &apiKey, nil
-}
-
-func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, apiKey string, postCode int) (*rawSchedule, error) {
-
+func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, postCode int) (*rawSchedule, error) {
 	// create the request
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.cfg.ApiUrl.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +63,6 @@ func (f *ScheduleFetcher) fetchSchedule(ctx context.Context, apiUrl url.URL, api
 	// add headers
 	req.Header.Add("content-type", "application/json")
 	req.Header.Add("x-requested-with", "XMLHttpRequest")
-	req.Header.Add("kp-api-token", apiKey)
 
 	// add query parameters
 	v := make(url.Values)
