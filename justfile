@@ -30,7 +30,9 @@ tag-version version:
 	git tag -a {{version}} -m "Release {{version}}"
 	git push origin {{version}}
 	docker tag {{image_name}} {{image_name}}:{{version}}
+	docker tag {{image_name}} {{image_name}}:latest
 	docker push {{image_name}}:{{version}}
+	docker push {{image_name}}:latest
 
 # Run the application in Docker
 docker-run:
