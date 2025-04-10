@@ -2,27 +2,37 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	// AutoLoad .env file
-
 	_ "github.com/joho/godotenv/autoload"
-	"golang.org/x/exp/slog"
 )
 
 func main() {
 	ctx := context.Background()
 	cfg := NewConfig(ctx)
 
+	level := slog.LevelInfo
+
+	switch cfg.LogLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
 	ho := slog.HandlerOptions{
-		Level:     cfg.LogLevel,
+		Level:     level,
 		AddSource: cfg.LogSource,
 	}
 
-	logger := slog.New(ho.NewJSONHandler(os.Stdout))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &ho))
 	logger = logger.With("subsystem", "main")
 
 	if cfg.DumpConfig {
