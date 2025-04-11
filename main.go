@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,7 +20,7 @@ func main() {
 
 	level := slog.LevelInfo
 
-	switch cfg.LogLevel {
+	switch strings.ToLower(cfg.LogLevel) {
 	case "debug":
 		level = slog.LevelDebug
 	case "warn":
@@ -26,6 +28,8 @@ func main() {
 	case "error":
 		level = slog.LevelError
 	}
+
+	fmt.Println("log level", level)
 
 	ho := slog.HandlerOptions{
 		Level:     level,
